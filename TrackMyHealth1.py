@@ -1,16 +1,13 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import folium
-from streamlit_folium import folium_static
-from geopy.geocoders import Nominatim
-from geopy.distance import geodesic
-import requests
-import bcrypt
+import hashlib
 from datetime import datetime
 import sqlite3
 import plotly.express as px
 import plotly.graph_objects as go
+import requests
+import json
 
 # Initialize SQLite database
 conn = sqlite3.connect('health_tracker.db', check_same_thread=False)
@@ -65,10 +62,12 @@ if 'user_id' not in st.session_state:
     st.session_state.user_id = None
 
 def hash_password(password):
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+    # Using hashlib instead of bcrypt
+    return hashlib.sha256(password.encode()).hexdigest()
 
 def check_password(password, hashed):
-    return bcrypt.checkpw(password.encode('utf-8'), hashed)
+    # Using hashlib instead of bcrypt
+    return hash_password(password) == hashed
 
 def register_user(username, password, email):
     try:
@@ -82,10 +81,41 @@ def register_user(username, password, email):
 
 def login_user(username, password):
     c.execute("SELECT id, password FROM users WHERE username = ?", (username,))
-    result = c.fetch_one()
+    result = c.fetchone()  # Fixed from fetch_one() to fetchone()
     if result and check_password(password, result[1]):
         return result[0]
     return None
+
+def get_hospitals_near_location(lat, lon, radius=5000):
+    # Use a simple API call to OpenStreetMap's Nominatim service
+    url = f"https://nominatim.openstreetmap.org/search?q=hospital&format=json&lat={lat}&lon={lon}&radius={radius}"
+    headers = {'User-Agent': 'HealthTrackerPro/1.0'}
+    
+    try:
+        response = requests.get(url, headers=headers)
+        return response.json()
+    except Exception as e:
+        st.error(f"Error fetching hospitals: {str(e)}")
+        return []
+
+def geocode_location(location_string):
+    # Use Nominatim to geocode a location string
+    url = f"https://nominatim.openstreetmap.org/search?q={location_string}&format=json&limit=1"
+    headers = {'User-Agent': 'HealthTrackerPro/1.0'}
+    
+    try:
+        response = requests.get(url, headers=headers)
+        data = response.json()
+        if data and len(data) > 0:
+            return {
+                'lat': float(data[0]['lat']),
+                'lon': float(data[0]['lon']),
+                'display_name': data[0]['display_name']
+            }
+        return None
+    except Exception as e:
+        st.error(f"Error geocoding location: {str(e)}")
+        return None
 
 def main():
     st.title("🏥 HealthTracker Pro")
@@ -132,7 +162,7 @@ def main():
             with col1:
                 # Health metrics visualization
                 health_data = pd.DataFrame({
-                    'Date': pd.date_range(start='2024-01-01', periods=7),
+                    'Date': pd.date_range(start='1947-01-01', periods=7),
                     'Steps': np.random.randint(5000, 15000, 7),
                     'Heart Rate': np.random.randint(60, 100, 7)
                 })
@@ -176,53 +206,45 @@ def main():
             st.header("Nearby Hospitals")
             
             # Get user's location
-            geolocator = Nominatim(user_agent="health_tracker")
-            location = st.text_input("Enter your location")
+            location = st.text_input("Enter your location (city, address, etc.)")
             
             if location:
-                try:
-                    loc = geolocator.geocode(location)
-                    if loc:
-                        # Create map centered on user's location
-                        m = folium.Map(location=[loc.latitude, loc.longitude], zoom_start=13)
+                loc = geocode_location(location)
+                if loc:
+                    st.write(f"Found location: {loc['display_name']}")
+                    
+                    # Create a simple map display using st.map
+                    map_df = pd.DataFrame({
+                        'lat': [loc['lat']],
+                        'lon': [loc['lon']]
+                    })
+                    
+                    st.write("Your location:")
+                    st.map(map_df)
+                    
+                    # Find hospitals
+                    hospitals = get_hospitals_near_location(loc['lat'], loc['lon'])
+                    
+                    if hospitals:
+                        st.subheader(f"Found {len(hospitals)} hospitals nearby")
                         
-                        # Add marker for user's location
-                        folium.Marker(
-                            [loc.latitude, loc.longitude],
-                            popup="Your Location",
-                            icon=folium.Icon(color='red', icon='info-sign')
-                        ).add_to(m)
+                        # Create dataframe for hospital markers
+                        hospital_df = pd.DataFrame([{
+                            'lat': float(h['lat']),
+                            'lon': float(h['lon']),
+                            'name': h.get('display_name', 'Hospital')
+                        } for h in hospitals])
                         
-                        # Search for nearby hospitals using OpenStreetMap
-                        overpass_url = "http://overpass-api.de/api/interpreter"
-                        overpass_query = f"""
-                        [out:json];
-                        (
-                          node["amenity"="hospital"](around:5000,{loc.latitude},{loc.longitude});
-                          way["amenity"="hospital"](around:5000,{loc.latitude},{loc.longitude});
-                          relation["amenity"="hospital"](around:5000,{loc.latitude},{loc.longitude});
-                        );
-                        out center;
-                        """
+                        st.write("Nearby hospitals:")
+                        st.map(hospital_df)
                         
-                        response = requests.get(overpass_url, params={'data': overpass_query})
-                        data = response.json()
-                        
-                        # Add hospital markers to map
-                        for element in data['elements']:
-                            if 'lat' in element and 'lon' in element:
-                                folium.Marker(
-                                    [element['lat'], element['lon']],
-                                    popup=element.get('tags', {}).get('name', 'Hospital'),
-                                    icon=folium.Icon(color='blue', icon='plus')
-                                ).add_to(m)
-                        
-                        # Display map
-                        folium_static(m)
+                        # List hospitals
+                        for i, hospital in enumerate(hospitals, 1):
+                            st.write(f"{i}. {hospital.get('display_name', 'Hospital')}")
                     else:
-                        st.error("Location not found")
-                except Exception as e:
-                    st.error(f"Error finding hospitals: {str(e)}")
+                        st.info("No hospitals found in the area")
+                else:
+                    st.error("Location not found")
 
         elif menu == "Settings":
             st.header("Account Settings")
