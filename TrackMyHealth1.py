@@ -934,9 +934,16 @@ def dashboard():
     elif role == "admin":
         admin_dashboard()
 def main():
+    # Apply background style at the top
     st.markdown(
         """
         <style>
+        .stApp {
+            background: linear-gradient(to bottom, #D8BFD8, #9370DB) !important;
+            min-height: 100vh !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
         .main .block-container {
             padding-top: 2rem;
             padding-bottom: 2rem;
@@ -958,10 +965,6 @@ def main():
         .stTabs [aria-selected="true"] {
             background-color: #28A745 !important;
             color: white !important;
-        }
-        body {
-            background: linear-gradient(to bottom, #D8BFD8, #9370DB);
-            min-height: 100vh;
         }
         </style>
         """,
