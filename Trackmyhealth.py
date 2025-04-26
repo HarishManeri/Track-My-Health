@@ -1,5 +1,3 @@
-# This version now includes pandas and PIL (Pillow) for image and data handling.
-
 import streamlit as st
 import sqlite3
 import os
