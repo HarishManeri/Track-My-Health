@@ -3,8 +3,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import sqlite3
-import plotly.express as px
-import plotly.graph_objects as go
 import requests
 import base64
 
@@ -157,27 +155,32 @@ def main():
             col1, col2 = st.columns(2)
             
             with col1:
-                # Health metrics visualization
+                # Health metrics visualization using Streamlit's native chart
                 health_data = pd.DataFrame({
-                    'Date': pd.date_range(start='1947-01-01', periods=7),
+                    'Date': pd.date_range(start='2024-01-01', periods=7),
                     'Steps': np.random.randint(5000, 15000, 7),
                     'Heart Rate': np.random.randint(60, 100, 7)
                 })
                 
-                fig = px.line(health_data, x='Date', y=['Steps', 'Heart Rate'],
-                            title='Weekly Health Metrics')
-                st.plotly_chart(fig)
+                # Use Streamlit's native line chart instead of plotly
+                st.subheader("Weekly Health Metrics")
+                st.line_chart(health_data.set_index('Date'))
 
             with col2:
-                # Sleep tracking
-                fig = go.Figure(go.Indicator(
-                    mode = "gauge+number",
-                    value = 7.5,
-                    title = {'text': "Sleep Hours"},
-                    gauge = {'axis': {'range': [0, 12]},
-                            'bar': {'color': "#64B5F6"}}
-                ))
-                st.plotly_chart(fig)
+                # Sleep tracking using a simple metric display
+                st.subheader("Sleep Hours")
+                sleep_hours = 7.5  # Example value
+                st.metric("Average Sleep", f"{sleep_hours} hours")
+                
+                # Create a simple progress bar to visualize sleep quality
+                st.progress(sleep_hours/12)
+                
+                if sleep_hours < 6:
+                    st.warning("You're not getting enough sleep!")
+                elif sleep_hours > 9:
+                    st.info("You're getting plenty of rest.")
+                else:
+                    st.success("Your sleep is in the healthy range.")
 
         elif menu == "Health Tracking":
             st.header("Track Your Health")
