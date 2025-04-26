@@ -1,8 +1,10 @@
+# This version now includes pandas and PIL (Pillow) for image and data handling, with registration support added.
+
 import streamlit as st
 import sqlite3
 import os
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime
 import uuid
 import base64
 import pandas as pd
@@ -47,6 +49,21 @@ def initialize_database():
         name TEXT,
         email TEXT
     )''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS patients (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        first_name TEXT,
+        last_name TEXT,
+        date_of_birth TEXT,
+        gender TEXT
+    )''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS hospitals (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        name TEXT,
+        address TEXT,
+        phone TEXT
+    )''')
     conn.commit()
     conn.close()
 
@@ -64,32 +81,82 @@ def authenticate(username, password):
     finally:
         conn.close()
 
+# Registration logic
+def register_user():
+    role = st.selectbox("Register as", ["Patient", "Hospital"])
+    if role == "Patient":
+        first_name = st.text_input("First Name")
+        last_name = st.text_input("Last Name")
+        dob = st.date_input("Date of Birth")
+        gender = st.selectbox("Gender", ["Male", "Female", "Other"])
+        email = st.text_input("Email")
+        if st.button("Register Patient"):
+            if first_name and last_name and email:
+                username = f"{first_name.lower()}.{last_name.lower()}"
+                password = "patient123"
+                user_id = f"USR_PAT_{uuid.uuid4().hex[:6]}"
+                patient_id = f"PAT_{uuid.uuid4().hex[:6]}"
+                conn = sqlite3.connect(DB_FILE)
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)",
+                               (user_id, username, hash_password(password), "patient", f"{first_name} {last_name}", email))
+                cursor.execute("INSERT INTO patients VALUES (?, ?, ?, ?, ?, ?)",
+                               (patient_id, user_id, first_name, last_name, dob.isoformat(), gender))
+                conn.commit()
+                conn.close()
+                st.success(f"Registered! Username: {username}, Password: {password}")
+            else:
+                st.warning("Please fill all required fields.")
+    elif role == "Hospital":
+        name = st.text_input("Hospital Name")
+        address = st.text_area("Address")
+        phone = st.text_input("Phone Number")
+        email = st.text_input("Email")
+        if st.button("Register Hospital"):
+            if name and address and phone and email:
+                username = name.lower().replace(" ", "")
+                password = "hospital123"
+                user_id = f"USR_HOS_{uuid.uuid4().hex[:6]}"
+                hospital_id = f"HOS_{uuid.uuid4().hex[:6]}"
+                conn = sqlite3.connect(DB_FILE)
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)",
+                               (user_id, username, hash_password(password), "hospital", name, email))
+                cursor.execute("INSERT INTO hospitals VALUES (?, ?, ?, ?, ?)",
+                               (hospital_id, user_id, name, address, phone))
+                conn.commit()
+                conn.close()
+                st.success(f"Registered! Username: {username}, Password: {password}")
+            else:
+                st.warning("Please fill all required fields.")
+
 # UI Pages
 def login_page():
     st.markdown(f'<h1 style="color:#28A745">Track My Health</h1><p>Your health companion.</p>', unsafe_allow_html=True)
-    role = st.selectbox("Login as", ["Patient", "Hospital", "Admin"])
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    if st.button("Login"):
-        user = authenticate(username, password)
-        if user:
-            st.session_state.authenticated = True
-            st.session_state.user = user
-            st.rerun()
-        else:
-            st.error("Invalid credentials")
+    choice = st.radio("Select Option", ["Login", "Register"])
+    if choice == "Login":
+        role = st.selectbox("Login as", ["Patient", "Hospital", "Admin"])
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        if st.button("Login"):
+            user = authenticate(username, password)
+            if user:
+                st.session_state.authenticated = True
+                st.session_state.user = user
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
+    else:
+        register_user()
 
 def dashboard():
     st.markdown(f"<h2 style='color:#28A745'>Welcome {st.session_state.user['name']}</h2>", unsafe_allow_html=True)
-    st.info("This version supports pandas for data handling and Pillow for image support.")
-    # Example pandas DataFrame
+    st.info("This version supports registration, pandas for data handling, and Pillow for image support.")
     df = pd.DataFrame({
         'Vital': ['Heart Rate', 'Blood Pressure'],
         'Value': ['72 bpm', '120/80 mmHg']
     })
     st.dataframe(df)
-
-    # Example image with PIL
     img = Image.new('RGB', (100, 50), color = 'green')
     st.image(img, caption='Sample PIL Image')
 
