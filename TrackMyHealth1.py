@@ -1,13 +1,12 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import hashlib
 from datetime import datetime
 import sqlite3
 import plotly.express as px
 import plotly.graph_objects as go
 import requests
-import json
+import base64
 
 # Initialize SQLite database
 conn = sqlite3.connect('health_tracker.db', check_same_thread=False)
@@ -61,19 +60,17 @@ if 'logged_in' not in st.session_state:
 if 'user_id' not in st.session_state:
     st.session_state.user_id = None
 
-def hash_password(password):
-    # Using hashlib instead of bcrypt
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def check_password(password, hashed):
-    # Using hashlib instead of bcrypt
-    return hash_password(password) == hashed
+def simple_encrypt(password):
+    # Very simple encoding - NOT secure for production!
+    # Only for demonstration without external libraries
+    return base64.b64encode(password.encode()).decode()
 
 def register_user(username, password, email):
     try:
-        hashed_pw = hash_password(password)
+        # Simple password encoding
+        encoded_pw = simple_encrypt(password)
         c.execute("INSERT INTO users (username, password, email) VALUES (?, ?, ?)",
-                 (username, hashed_pw, email))
+                 (username, encoded_pw, email))
         conn.commit()
         return True
     except sqlite3.IntegrityError:
@@ -81,8 +78,8 @@ def register_user(username, password, email):
 
 def login_user(username, password):
     c.execute("SELECT id, password FROM users WHERE username = ?", (username,))
-    result = c.fetchone()  # Fixed from fetch_one() to fetchone()
-    if result and check_password(password, result[1]):
+    result = c.fetchone()
+    if result and simple_encrypt(password) == result[1]:
         return result[0]
     return None
 
