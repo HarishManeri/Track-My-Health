@@ -1,10 +1,10 @@
-# This version now includes pandas and PIL (Pillow) for image and data handling, with registration support added.
+# Full-featured Track My Health app with login, registration, and role-based dashboards.
 
 import streamlit as st
 import sqlite3
 import os
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 import base64
 import pandas as pd
@@ -63,6 +63,14 @@ def initialize_database():
         name TEXT,
         address TEXT,
         phone TEXT
+    )''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS appointments (
+        id TEXT PRIMARY KEY,
+        patient_id TEXT,
+        hospital_id TEXT,
+        appointment_date TEXT,
+        reason TEXT,
+        status TEXT
     )''')
     conn.commit()
     conn.close()
@@ -149,16 +157,86 @@ def login_page():
     else:
         register_user()
 
+def patient_dashboard():
+    st.subheader("Patient Dashboard")
+    st.write("Book appointments, view history, and monitor health trends.")
+
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM patients WHERE user_id = ?", (st.session_state.user['user_id'],))
+    patient_id = cursor.fetchone()[0]
+    cursor.execute("SELECT id, name FROM hospitals")
+    hospitals = cursor.fetchall()
+    hospital_dict = {name: id_ for id_, name in hospitals}
+
+    hospital_choice = st.selectbox("Choose Hospital", list(hospital_dict.keys()))
+    appointment_date = st.date_input("Appointment Date")
+    appointment_time = st.time_input("Appointment Time")
+    reason = st.text_input("Reason for Visit")
+    if st.button("Book Appointment"):
+        appt_datetime = datetime.combine(appointment_date, appointment_time).isoformat()
+        appt_id = f"APT_{uuid.uuid4().hex[:6]}"
+        cursor.execute("INSERT INTO appointments VALUES (?, ?, ?, ?, ?, ?)",
+                       (appt_id, patient_id, hospital_dict[hospital_choice], appt_datetime, reason, "Scheduled"))
+        conn.commit()
+        st.success("Appointment booked successfully.")
+
+    cursor.execute("SELECT a.id, h.name, a.appointment_date, a.reason, a.status FROM appointments a JOIN hospitals h ON a.hospital_id = h.id WHERE a.patient_id = ?", (patient_id,))
+    appointments = cursor.fetchall()
+    if appointments:
+        df = pd.DataFrame(appointments, columns=["Appointment ID", "Hospital", "Date & Time", "Reason", "Status"])
+        st.dataframe(df)
+
+        if st.button("Export My Appointments to CSV"):
+            df.to_csv("my_appointments.csv", index=False)
+            st.download_button("Download My Appointments", data=open("my_appointments.csv", "rb"), file_name="my_appointments.csv")
+
+    conn.close()
+
+def hospital_dashboard():
+    st.subheader("Hospital Dashboard")
+    st.write("Manage appointments and view patient records.")
+
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM hospitals WHERE user_id = ?", (st.session_state.user['user_id'],))
+    hospital_id = cursor.fetchone()[0]
+
+    cursor.execute("SELECT a.id, u.name, a.appointment_date, a.reason, a.status FROM appointments a JOIN patients p ON a.patient_id = p.id JOIN users u ON p.user_id = u.id WHERE a.hospital_id = ?", (hospital_id,))
+    data = cursor.fetchall()
+
+    if data:
+        df = pd.DataFrame(data, columns=["Appointment ID", "Patient Name", "Date & Time", "Reason", "Status"])
+        st.dataframe(df)
+
+        selected = st.selectbox("Select Appointment to Update Status", df["Appointment ID"])
+        new_status = st.selectbox("New Status", ["Scheduled", "Completed", "Cancelled"])
+        if st.button("Update Status"):
+            cursor.execute("UPDATE appointments SET status = ? WHERE id = ?", (new_status, selected))
+            conn.commit()
+            st.success("Appointment status updated.")
+    else:
+        st.info("No appointments found.")
+
+    if st.button("Export Appointments to CSV"):
+        df.to_csv("appointments.csv", index=False)
+        st.download_button("Download CSV", data=open("appointments.csv", "rb"), file_name="appointments.csv")
+
+    conn.close()
+
+def admin_dashboard():
+    st.subheader("Admin Dashboard")
+    st.write("Review hospital registrations and system stats.")
+
 def dashboard():
+    role = st.session_state.user['role']
     st.markdown(f"<h2 style='color:#28A745'>Welcome {st.session_state.user['name']}</h2>", unsafe_allow_html=True)
-    st.info("This version supports registration, pandas for data handling, and Pillow for image support.")
-    df = pd.DataFrame({
-        'Vital': ['Heart Rate', 'Blood Pressure'],
-        'Value': ['72 bpm', '120/80 mmHg']
-    })
-    st.dataframe(df)
-    img = Image.new('RGB', (100, 50), color = 'green')
-    st.image(img, caption='Sample PIL Image')
+    if role == "patient":
+        patient_dashboard()
+    elif role == "hospital":
+        hospital_dashboard()
+    elif role == "admin":
+        admin_dashboard()
 
 def main():
     initialize_database()
